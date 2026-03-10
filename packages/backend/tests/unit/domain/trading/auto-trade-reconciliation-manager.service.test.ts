@@ -44,6 +44,9 @@ jest.mock('@/infrastructure/database/repositories/agent.repository.js', () => ({
 
 jest.mock('@/domain/trading/auto-trade-market-cap-guard.js', () => ({
   evaluateAutoTradeMarketCapGuard: jest.fn(),
+  hasAutoTradeMarketCapBounds: jest.fn((token: { marketCapMin?: number; marketCapMax?: number }) =>
+    token.marketCapMin != null || token.marketCapMax != null
+  ),
 }));
 
 jest.mock('@/domain/trading/trading-executor.service.js', () => ({
@@ -91,6 +94,8 @@ describe('AutoTradeReconciliationManager', () => {
     mockRedisAgentService.getActiveAgentIds.mockResolvedValue(['agent-1']);
     mockRedisAgentService.getTradingMode.mockResolvedValue('simulation');
     mockIdempotencyService.checkAndSet.mockResolvedValue(true);
+    // Token without market-cap bounds so reconciliation processes it (tokens with bounds
+    // are handled by the 30s market-cap monitor and skipped here).
     mockConfigService.loadAgentConfig.mockResolvedValue({
       autoTrade: {
         enabled: true,
@@ -98,8 +103,6 @@ describe('AutoTradeReconciliationManager', () => {
           address: 'Token111111111111111111111111111111111111',
           symbol: 'TKN',
           enabled: true,
-          marketCapMin: 200_000,
-          marketCapMax: 5_000_000,
         }],
       },
     });

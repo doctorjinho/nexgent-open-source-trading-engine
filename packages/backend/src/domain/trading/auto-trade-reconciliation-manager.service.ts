@@ -4,6 +4,10 @@
  * Periodically verifies that enabled auto-trade tokens have active positions.
  * If a token is enabled for auto-trade but no open position exists, this manager
  * attempts to open one (subject to market-cap policy and normal trade guardrails).
+ *
+ * Tokens with per-token market-cap bounds are skipped here and handled by the
+ * faster-cadence AutoTradeMarketCapMonitor (30s). This manager acts as a 10-min
+ * safety net for tokens without bounds.
  */
 
 import { prisma } from '@/infrastructure/database/client.js';
@@ -12,7 +16,7 @@ import { idempotencyService } from '@/infrastructure/cache/idempotency-service.j
 import { configService } from './config-service.js';
 import { AgentRepository } from '@/infrastructure/database/repositories/agent.repository.js';
 import { tradingExecutor, TradingExecutorError } from './trading-executor.service.js';
-import { evaluateAutoTradeMarketCapGuard } from './auto-trade-market-cap-guard.js';
+import { evaluateAutoTradeMarketCapGuard, hasAutoTradeMarketCapBounds } from './auto-trade-market-cap-guard.js';
 import type { TokenMarketCapBounds } from './auto-trade-market-cap-guard.js';
 import { EXPECTED_AUTO_TRADE_SKIP_CODES } from './auto-trade-constants.js';
 import logger from '@/infrastructure/logging/logger.js';
@@ -94,6 +98,10 @@ export class AutoTradeReconciliationManager {
       }
 
       for (const token of enabledTokens) {
+        // Tokens with market-cap bounds are handled by the 30s market-cap monitor.
+        // Reconciliation only covers tokens without bounds as a 10-min safety net.
+        if (hasAutoTradeMarketCapBounds(token)) continue;
+
         await this.reconcileToken({
           agentId,
           walletAddress: wallet.walletAddress,

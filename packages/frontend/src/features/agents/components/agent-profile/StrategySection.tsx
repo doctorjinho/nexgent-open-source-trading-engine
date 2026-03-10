@@ -246,24 +246,24 @@ export function StrategySection({ agentId, agentName, initialConfig }: StrategyS
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <CardTitle>Trading Strategy</CardTitle>
             <CardDescription>
               Configure your agent's trading strategy settings including purchase limits, stop loss, and position sizing.
             </CardDescription>
           </div>
-          <div className="flex items-center gap-3">
-            <Button size="sm" variant="outline" onClick={handleExportConfig} title="Export config to JSON">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <Button size="sm" variant="outline" onClick={handleExportConfig} title="Export config to JSON" className="w-full sm:w-auto">
               <Download className="h-4 w-4 mr-1" />
               Export
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setLoadDialogOpen(true)} title="Load config from another agent">
+            <Button size="sm" variant="outline" onClick={() => setLoadDialogOpen(true)} title="Load config from another agent" className="w-full sm:w-auto">
               <FolderInput className="h-4 w-4 mr-1" />
               Load from Agent
             </Button>
             {canSave && (
-              <Button size="sm" onClick={handleSave} disabled={isSaving}>
+              <Button size="sm" onClick={handleSave} disabled={isSaving} className="w-full sm:w-auto">
                 {saveStatus === 'saving' && <LoadingSpinner size="sm" className="mr-1" />}
                 Save Changes
               </Button>
@@ -335,7 +335,7 @@ export function StrategySection({ agentId, agentName, initialConfig }: StrategyS
             {/* Tab Content */}
             <div className="space-y-4 mt-4">
               {activeTab === 'purchase' && <PurchaseAndPositionSection />}
-              {activeTab === 'auto-trade' && <AutoTradeSection />}
+              {activeTab === 'auto-trade' && <AutoTradeSection agentId={agentId} />}
               {activeTab === 'signals' && <SignalsSection />}
               {activeTab === 'risk-management' && <RiskManagementSection />}
               {activeTab === 'stop-loss' && <StopLossSection />}

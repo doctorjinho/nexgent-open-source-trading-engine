@@ -116,6 +116,7 @@ import { wsServer } from './infrastructure/websocket/server.js';
 import { priceUpdateManager } from './domain/prices/index.js';
 import { initializeAutoTradeReentryManager, shutdownAutoTradeReentryManager } from './domain/trading/auto-trade-reentry-manager.service.js';
 import { initializeAutoTradeReconciliationManager, shutdownAutoTradeReconciliationManager } from './domain/trading/auto-trade-reconciliation-manager.service.js';
+import { initializeAutoTradeMarketCapMonitor, shutdownAutoTradeMarketCapMonitor } from './domain/trading/auto-trade-market-cap-monitor.service.js';
 import type { Server } from 'http';
 import { errorHandler, notFoundHandler } from '@/middleware/error-handler.js';
 import { requestLogger } from '@/middleware/request-logger.js';
@@ -320,6 +321,7 @@ async function startServer() {
       // Initialize auto-trade re-entry manager
       initializeAutoTradeReentryManager();
       initializeAutoTradeReconciliationManager();
+      initializeAutoTradeMarketCapMonitor();
 
       // Initialize price update manager (after WebSocket server)
       priceUpdateManager.initialize(wsServer);
@@ -403,6 +405,7 @@ function setupGracefulShutdown() {
       try {
         shutdownAutoTradeReentryManager();
         shutdownAutoTradeReconciliationManager();
+        shutdownAutoTradeMarketCapMonitor();
       } catch (error) {
         console.error('❌ Error shutting down auto-trade managers:', error);
       }

@@ -254,6 +254,25 @@ export class AgentsService {
    * const balanceHistory = await agentsService.getAgentBalanceHistory('agent-123', 'wallet-address', 'all');
    * ```
    */
+  /**
+   * Fetch open positions for an agent.
+   *
+   * @param agentId - Agent ID
+   * @returns Promise resolving to array of open positions
+   * @throws Error if request fails
+   */
+  async getPositions(agentId: string): Promise<Array<{ tokenAddress: string; [key: string]: unknown }>> {
+    const response = await apiClient.get(`/api/v1/agents/${agentId}/positions`);
+
+    if (!response.ok) {
+      const errorMessage = await extractErrorFromResponse(response);
+      throw new Error(errorMessage || 'Failed to fetch positions');
+    }
+
+    const data = await response.json();
+    return Array.isArray(data) ? data : data.positions || [];
+  }
+
   async getAgentBalanceHistory(
     agentId: string,
     walletAddress: string,

@@ -28,6 +28,7 @@ export {
 } from './hooks/use-agent-trading-config';
 export { useAgentPerformance } from './hooks/use-agent-performance';
 export { useAgentBalanceHistory } from './hooks/use-agent-balance-history';
+export { useAutoTradePositionTokens } from './hooks/use-auto-trade-position-tokens';
 
 // Types
 export type {

@@ -24,8 +24,9 @@ import { Button } from '@/shared/components/ui/button';
 import { Separator } from '@/shared/components/ui/separator';
 import { Alert, AlertDescription } from '@/shared/components/ui/alert';
 import { useFormContext } from 'react-hook-form';
-import { RefreshCw, X, Loader2, Info, Coins } from 'lucide-react';
+import { RefreshCw, X, Loader2, Info, Coins, Radio, CircleCheck } from 'lucide-react';
 import { useTokenMetadata } from '@/features/agents/hooks/use-token-metadata';
+import { useAutoTradePositionTokens } from '@/features/agents/hooks/use-auto-trade-position-tokens';
 import type { AgentTradingConfigFormValues } from './trading-config-form-schema';
 import { cn } from '@/shared/utils/cn';
 
@@ -41,10 +42,27 @@ function formatAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-6)}`;
 }
 
+interface AutoTradeSectionProps {
+  agentId: string;
+}
+
+/** Derive the monitoring status for an enabled auto-trade token. */
+function getTokenStatus(
+  tokenEnabled: boolean,
+  globalEnabled: boolean,
+  hasPosition: boolean,
+  hasBounds: boolean,
+): 'disabled' | 'active' | 'monitoring' | 'waiting_for_range' {
+  if (!tokenEnabled || !globalEnabled) return 'disabled';
+  if (hasPosition) return 'active';
+  return hasBounds ? 'waiting_for_range' : 'monitoring';
+}
+
 /** Auto Trade token list and per-token market-cap configuration. */
-export function AutoTradeSection() {
+export function AutoTradeSection({ agentId }: AutoTradeSectionProps) {
   const form = useFormContext<AgentTradingConfigFormValues>();
   const { fetchTokenMetadata } = useTokenMetadata();
+  const positionTokens = useAutoTradePositionTokens(agentId);
   const enabled = form.watch('autoTrade.enabled') ?? false;
   const tokens = form.watch('autoTrade.tokens') ?? [];
   const [newToken, setNewToken] = useState('');
@@ -101,7 +119,7 @@ export function AutoTradeSection() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
               <RefreshCw className="h-5 w-5" />
@@ -142,7 +160,7 @@ export function AutoTradeSection() {
           render={() => (
             <FormItem className="space-y-4">
               <FormLabel>Tokens</FormLabel>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
                 <Input
                   placeholder="Token mint address (e.g. ...pump)"
                   value={newToken}
@@ -156,12 +174,12 @@ export function AutoTradeSection() {
                       if (!isResolvingSymbol) void addToken();
                     }
                   }}
-                  className="font-mono text-sm"
+                  className="font-mono text-sm w-full sm:flex-1"
                 />
                 <Button
                   type="button"
                   variant="secondary"
-                  className="min-w-[88px] h-10"
+                  className="w-full sm:min-w-[88px] sm:w-auto h-10"
                   onClick={() => void addToken()}
                   aria-label="Add token address"
                   disabled={isResolvingSymbol}
@@ -183,13 +201,18 @@ export function AutoTradeSection() {
               <Alert className="bg-muted/40">
                 <Info className="h-4 w-4" />
                 <AlertDescription className="text-sm">
-                  Each token has optional market cap bounds. Re-entry and DCA buys will only execute while the token's market cap is within the configured range. Leave empty for no restriction.
+                  Each token has optional market cap bounds. Auto-trade purchases, re-entry, and DCA buys will only execute while the token's market cap is within the configured range. Tokens with bounds are monitored every 30 seconds. Leave empty for no restriction.
                 </AlertDescription>
               </Alert>
 
               {tokens.length > 0 && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                  {tokens.map((token: { address: string; symbol?: string; logoUrl?: string; enabled: boolean; marketCapMin?: number; marketCapMax?: number }, index: number) => (
+                  {tokens.map((token: { address: string; symbol?: string; logoUrl?: string; enabled: boolean; marketCapMin?: number; marketCapMax?: number }, index: number) => {
+                    const hasBounds = token.marketCapMin != null || token.marketCapMax != null;
+                    const hasPosition = positionTokens.has(token.address.trim().toLowerCase());
+                    const status = getTokenStatus(token.enabled, enabled, hasPosition, hasBounds);
+
+                    return (
                     <div
                       key={`${token.address}-${index}`}
                       className={cn(
@@ -200,7 +223,7 @@ export function AutoTradeSection() {
                         !enabled && 'opacity-70'
                       )}
                     >
-                      <div className="flex items-center gap-3 p-3">
+                      <div className="flex min-w-0 items-center gap-3 p-3">
                         {token.logoUrl ? (
                           <div className="h-10 w-10 shrink-0 rounded-lg overflow-hidden border border-border/70 bg-muted/30">
                             <img
@@ -236,8 +259,30 @@ export function AutoTradeSection() {
                             {formatAddress(token.address)}
                           </p>
                         </div>
+                      </div>
 
-                        <div className="flex items-center gap-2 ml-1">
+                      <div className="flex items-center justify-between gap-2 px-3 pb-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          {status === 'active' && (
+                            <>
+                              <CircleCheck className="h-3.5 w-3.5 shrink-0 text-green-500" />
+                              <span className="text-xs font-medium text-green-600 dark:text-green-400">Active</span>
+                            </>
+                          )}
+                          {status === 'monitoring' && (
+                            <>
+                              <Radio className="h-3.5 w-3.5 shrink-0 text-amber-500 animate-pulse" />
+                              <span className="text-xs font-medium text-amber-600 dark:text-amber-400">Monitoring</span>
+                            </>
+                          )}
+                          {status === 'waiting_for_range' && (
+                            <>
+                              <Radio className="h-3.5 w-3.5 shrink-0 text-amber-500 animate-pulse" />
+                              <span className="text-xs font-medium text-amber-600 dark:text-amber-400">Waiting for range</span>
+                            </>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
                           <Switch
                             checked={token.enabled}
                             onCheckedChange={(checked) => toggleToken(index, checked)}
@@ -253,12 +298,10 @@ export function AutoTradeSection() {
                             <X className="h-4 w-4" />
                           </Button>
                         </div>
-
-                        {token.enabled && <span className="absolute top-2 right-2 h-1.5 w-1.5 rounded-full bg-foreground/80" />}
                       </div>
 
                       <div className="border-t px-3 pb-3 pt-2">
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           <FormField
                             control={form.control}
                             name={`autoTrade.tokens.${index}.marketCapMin`}
@@ -298,7 +341,8 @@ export function AutoTradeSection() {
                         </div>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               {tokens.length === 0 && (

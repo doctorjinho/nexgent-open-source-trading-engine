@@ -20,13 +20,16 @@ import {
   AUTO_TRADE_SIGNAL_TYPE,
   AUTO_TRADE_SIGNAL_SOURCE,
 } from '@/domain/trading/auto-trade-constants.js';
+import { evaluateAutoTradeMarketCapGuard } from '@/domain/trading/auto-trade-market-cap-guard.js';
 import type { AgentTradingConfig } from '@nexgent/shared';
 
-/** Minimal token shape returned by {@link getImmediateAutoTradeTokens}. */
+/** Token shape returned by {@link getImmediateAutoTradeTokens}, includes market-cap bounds. */
 type AutoTradeToken = {
   address: string;
   symbol?: string;
   enabled: boolean;
+  marketCapMin?: number;
+  marketCapMax?: number;
 };
 
 /**
@@ -182,6 +185,27 @@ export async function updateAgentTradingConfig(req: AuthenticatedRequest, res: R
 
       for (const token of immediateTokens) {
         try {
+          // Enforce per-token market-cap bounds before immediate purchase.
+          // If out of range, the 30s market-cap monitor will pick it up later.
+          const marketCapGuard = await evaluateAutoTradeMarketCapGuard({
+            tokenAddress: token.address.trim(),
+            tokenBounds: { marketCapMin: token.marketCapMin, marketCapMax: token.marketCapMax },
+          });
+          if (!marketCapGuard.allowed) {
+            logger.info(
+              {
+                agentId: id,
+                tokenAddress: token.address,
+                reason: marketCapGuard.reason,
+                marketCap: marketCapGuard.marketCap,
+                marketCapMin: token.marketCapMin ?? null,
+                marketCapMax: token.marketCapMax ?? null,
+              },
+              'Auto-trade immediate buy deferred: market-cap out of range, monitor will retry'
+            );
+            continue;
+          }
+
           const signalId = await createImmediateAutoTradeSignal({
             userId: req.user.id,
             tokenAddress: token.address,

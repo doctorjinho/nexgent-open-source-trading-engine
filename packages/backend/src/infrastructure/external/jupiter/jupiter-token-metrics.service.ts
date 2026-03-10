@@ -121,6 +121,133 @@ export async function fetchTokenMetrics(tokenAddress: string): Promise<TokenMetr
   }
 }
 
+/**
+ * Fetch token metrics for multiple mint addresses in a single API call.
+ *
+ * Jupiter Tokens API v2 search supports comma-separated addresses (up to 100
+ * per request). Addresses already in the in-memory cache are served from cache;
+ * only uncached addresses hit the API. If more than 100 uncached addresses are
+ * provided, they are chunked into sequential requests.
+ *
+ * @see https://dev.jup.ag/docs/tokens/v2/token-information
+ * @param tokenAddresses - Array of Solana token mint addresses
+ * @returns Map of tokenAddress → TokenMetrics (or null if unavailable)
+ */
+export async function fetchTokenMetricsBatch(
+  tokenAddresses: string[],
+): Promise<Map<string, TokenMetrics | null>> {
+  const results = new Map<string, TokenMetrics | null>();
+  const uncached: string[] = [];
+
+  const deduplicated = [...new Set(tokenAddresses)];
+
+  for (const addr of deduplicated) {
+    const cached = metricsCache.get(addr);
+    if (cached && Date.now() < cached.expiresAt) {
+      results.set(addr, cached.metrics);
+    } else {
+      uncached.push(addr);
+    }
+  }
+
+  if (uncached.length === 0) {
+    return results;
+  }
+
+  const apiKey = getJupiterApiKey();
+  if (!apiKey) {
+    logger.warn('[JupiterTokenMetrics] JUPITER_API_KEY not set; skipping batch token metrics fetch');
+    for (const addr of uncached) {
+      results.set(addr, null);
+    }
+    return results;
+  }
+
+  const CHUNK_SIZE = 100;
+  for (let i = 0; i < uncached.length; i += CHUNK_SIZE) {
+    const chunk = uncached.slice(i, i + CHUNK_SIZE);
+    const queryValue = chunk.join(',');
+    const url = `${JUPITER_TOKENS_V2_SEARCH_URL}?query=${encodeURIComponent(queryValue)}`;
+
+    try {
+      const response = await withTimeout(
+        fetch(url, {
+          method: 'GET',
+          headers: {
+            'x-api-key': apiKey,
+            'Content-Type': 'application/json',
+          },
+        }),
+        TOKEN_METRICS_TIMEOUT_MS,
+        `Jupiter batch token metrics request timed out (${chunk.length} tokens)`
+      );
+
+      if (!response.ok) {
+        const text = await response.text();
+        logger.warn(
+          { tokenCount: chunk.length, status: response.status, body: text.slice(0, 200) },
+          '[JupiterTokenMetrics] Batch API error'
+        );
+        for (const addr of chunk) {
+          cacheResult(addr, null);
+          results.set(addr, null);
+        }
+        continue;
+      }
+
+      const data = (await response.json()) as JupiterMintInformation[];
+      if (!Array.isArray(data)) {
+        logger.warn({ tokenCount: chunk.length }, '[JupiterTokenMetrics] Unexpected batch response format');
+        for (const addr of chunk) {
+          cacheResult(addr, null);
+          results.set(addr, null);
+        }
+        continue;
+      }
+
+      // Index response items by their `id` (mint address) for O(1) lookup
+      const responseById = new Map<string, JupiterMintInformation>();
+      for (const item of data) {
+        if (item.id) {
+          responseById.set(item.id, item);
+        }
+      }
+
+      for (const addr of chunk) {
+        const item = responseById.get(addr);
+        if (item) {
+          const metrics: TokenMetrics = {
+            mcap: item.mcap ?? null,
+            liquidity: item.liquidity ?? null,
+            holderCount: item.holderCount ?? null,
+          };
+          cacheResult(addr, metrics);
+          results.set(addr, metrics);
+        } else {
+          cacheResult(addr, null);
+          results.set(addr, null);
+        }
+      }
+
+      logger.debug(
+        { requested: chunk.length, returned: data.length },
+        '[JupiterTokenMetrics] Batch fetch completed'
+      );
+    } catch (error) {
+      logger.warn(
+        { tokenCount: chunk.length, error: error instanceof Error ? error.message : String(error) },
+        '[JupiterTokenMetrics] Batch fetch failed'
+      );
+      for (const addr of chunk) {
+        cacheResult(addr, null);
+        results.set(addr, null);
+      }
+    }
+  }
+
+  return results;
+}
+
 /** Store a result in the cache with the configured TTL. */
 function cacheResult(tokenAddress: string, metrics: TokenMetrics | null): void {
   metricsCache.set(tokenAddress, {
